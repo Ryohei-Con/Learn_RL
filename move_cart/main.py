@@ -1,14 +1,15 @@
 import argparse
-from collections import deque
-import copy
 import random
-from tqdm import tqdm
+from collections import deque
+from pathlib import Path
+
 import gymnasium as gym
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 
 class QNet(nn.Module):
@@ -61,7 +62,7 @@ class ReplayBuffer:
 class DQNAgent:
     def __init__(self, num_states, num_actions, buffer_size, batch_size, learning_rate, num_episodes):
         self.EPS = 0.5
-        self.EPS_diff = (0.15 - 0.01) / num_episodes
+        self.EPS_diff = (self.EPS - 0.01) / num_episodes
         self.GAMMA = 0.99
         self.num_actions = num_actions
         self.batch_size = batch_size
@@ -98,7 +99,7 @@ class DQNAgent:
         next_q_val = self.target_qnet(next_states).data.max(dim=1).values
         target = rewards + (1 - dones) * self.GAMMA * next_q_val
         preds = torch.gather(self.qnet(states), 1, actions.unsqueeze(dim=1).to(torch.int64))
-        loss = self.loss(preds, target)
+        loss = self.loss(preds.squeeze(), target)
 
         # パラメータの更新
         self.optimizer.zero_grad()
@@ -106,27 +107,53 @@ class DQNAgent:
         self.optimizer.step()
 
 
+class RewardWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.max_position = -2.4
+
+    def step(self, action):
+        # 右に進んでいるときに報酬を与える or 一方通行的な報酬を与える
+        next_state, reward, terminated, truncated, info = self.env.step(action)
+        reward -= abs(next_state[2])
+        # if abs(next_state[1]) < 10:
+            # TODO: 速さの単位とかがわからない
+        if 1.7 < next_state[0] < 2.2:
+            reward += 20
+        if self.max_pos < next_state[0] < 2.2:
+            # 一方通行的な報酬
+            reward += 10
+            self.max_pos = next_state[0]
+
+        return next_state, reward, terminated, truncated, info
+
+    def reset(self):
+        return np.array([-2.0, 0.0, 0.0, 0.0])
+
+
 def main():
     parser = argparse.ArgumentParser(description="This executes DQN learning on CartPole")
     parser.add_argument("model_name", help="specify model name")
     args = parser.parse_args()
-    
+
     model_name = args.model_name
-    num_iters = 10
-    num_episodes = 5000
+    num_iters = 3
+    num_episodes = 10000
     state_dim = 4
     action_space = 2
     buffer_size = 4096
     batch_size = 32
     learning_rate = 0.01
+    all_history = []
     try:
         for iter in range(num_iters):
-            env = gym.make("CartPole-v1", render_mode=None)
+            env = gym.make("CartPole-v1", render_mode="human")
+            custom_env = RewardWrapper(env)
             agent = DQNAgent(state_dim, action_space, buffer_size, batch_size, learning_rate, num_episodes)
             reward_history = []
             with tqdm(range(num_episodes)) as pbar:
                 for episode in pbar:
-                    state, info = env.reset()
+                    state = custom_env.reset()
                     total_reward = 0
                     while True:
                         action = agent.get_action(state)
@@ -142,19 +169,33 @@ def main():
                     if episode % 20 == 0:
                         agent.sync_target()
                         pbar.set_description(f"iter: {iter}, reward: {sum(reward_history[-20:]) / 20}")
+            all_history.append(reward_history)
 
     finally:
-        reward_history = np.array(reward_history)
-        plt.plot(reward_history.mean(axis=1))
-        plt.title("Total Rewards")
-        plt.xlabel("iteration")
-        plt.ylabel("reward")
-        plt.show()
-        torch.save(agent.qnet.state_dict(), f"output/{model_name}.pt")
-        with open(f"output/{model_name}.txt", "w") as f:
+        output_dir = Path("output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        model_weight_file = (output_dir / model_name).with_suffix(".pt")
+        model_result_text = (output_dir / model_name).with_suffix(".txt")
+        model_result_fig = (output_dir / model_name).with_suffix(".png")
+
+        all_history = np.array(all_history)
+
+        # モデルのrewardを保存
+        with open(model_result_text, "w") as f:
             for reward in reward_history:
                 f.write(str(reward))
                 f.write("\n")
+        
+        # モデルの重みを保存
+        torch.save(agent.qnet.state_dict(), model_weight_file)
+
+        # モデルのreward推移を可視化
+        plt.plot(all_history.mean(axis=1))
+        plt.title("Total Rewards")
+        plt.xlabel("iteration")
+        plt.ylabel("reward")
+        plt.savefig(model_result_fig)
+        plt.show()
 
 
 if __name__ == "__main__":
