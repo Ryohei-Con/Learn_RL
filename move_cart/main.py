@@ -11,52 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-
-class QNet(nn.Module):
-    def __init__(self, in_dim, hid_dim, out_dim):
-        super().__init__()
-        self.linear1 = nn.Linear(in_dim, hid_dim)
-        self.linear2 = nn.Linear(hid_dim, hid_dim)
-        self.linear3 = nn.Linear(hid_dim, out_dim)
-
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
-        """"
-        (batch_size, in_dim) -> (batch_size, out_dim)
-        """
-        data = self.linear1(data)
-        data = F.relu(data)
-        data = self.linear2(data)
-        data = F.relu(data)
-        data = self.linear3(data)
-        return data
-
-
-class ReplayBuffer:
-    def __init__(self, buffer_size: int, batch_size):
-        self.buffer = deque(maxlen=buffer_size)
-        self.batch_size = batch_size
-
-    def __len__(self):
-        return len(self.buffer)
-    
-    def add(self, state, reward, action, next_state, done):
-        data = (state, reward, action, next_state, done)
-        self.buffer.append(data)
-
-    def get_batch(self):
-        sample_data = random.sample(self.buffer, self.batch_size)
-        states = []
-        rewards = []
-        actions = []
-        next_states = []
-        dones = []
-        for data in sample_data:
-            states.append(data[0])
-            rewards.append(data[1])
-            actions.append(data[2])
-            next_states.append(data[3])
-            dones.append(int(data[4]))
-        return torch.Tensor(np.array(states)), torch.Tensor(np.array(rewards)), torch.Tensor(np.array(actions)), torch.Tensor(np.array(next_states)), torch.Tensor(np.array(dones))
+from common.save_models import save_result_text, save_weights, save_figure
+from common.replay_buffer import ReplayBuffer
+from common.QNet import QNet
 
 
 class DQNAgent:
@@ -110,7 +67,6 @@ class DQNAgent:
 class RewardWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
-        self.max_position = -2.4
 
     def step(self, action):
         # 右に進んでいるときに報酬を与える or 一方通行的な報酬を与える
@@ -128,7 +84,11 @@ class RewardWrapper(gym.Wrapper):
         return next_state, reward, terminated, truncated, info
 
     def reset(self):
-        return np.array([-2.0, 0.0, 0.0, 0.0])
+        state, info = self.env.reset()
+        self.env.unwrapped.state = np.array([-2.0, 0.0, 0.0, 0.0])
+        self.max_pos = -2.0
+        obs = np.array(self.env.unwrapped.state, dtype=np.float32)
+        return obs, info
 
 
 def main():
@@ -153,11 +113,11 @@ def main():
             reward_history = []
             with tqdm(range(num_episodes)) as pbar:
                 for episode in pbar:
-                    state = custom_env.reset()
+                    state, info = custom_env.reset()
                     total_reward = 0
                     while True:
                         action = agent.get_action(state)
-                        next_state, reward, terminated, truncated, info = env.step(int(action))
+                        next_state, reward, terminated, truncated, info = custom_env.step(int(action))
                         done = truncated or terminated
                         agent.update(state, reward, int(action), next_state, done)
                         total_reward += reward
@@ -180,22 +140,9 @@ def main():
 
         all_history = np.array(all_history)
 
-        # モデルのrewardを保存
-        with open(model_result_text, "w") as f:
-            for reward in reward_history:
-                f.write(str(reward))
-                f.write("\n")
-        
-        # モデルの重みを保存
-        torch.save(agent.qnet.state_dict(), model_weight_file)
-
-        # モデルのreward推移を可視化
-        plt.plot(all_history.mean(axis=1))
-        plt.title("Total Rewards")
-        plt.xlabel("iteration")
-        plt.ylabel("reward")
-        plt.savefig(model_result_fig)
-        plt.show()
+        save_result_text(all_history, model_result_text)
+        save_weithts(agent)
+        save_figure(all_history)
 
 
 if __name__ == "__main__":
