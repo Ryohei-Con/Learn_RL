@@ -11,9 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from common.save_models import save_result_text, save_weights, save_figure
-from common.replay_buffer import ReplayBuffer
-from common.QNet import QNet
+from src.common.save_models import save_result_text, save_weights, save_figure
+from src.common.replay_buffer import ReplayBuffer
+from src.common.QNet import QNet
 
 
 class DQNAgent:
@@ -67,18 +67,35 @@ class DQNAgent:
 class RewardWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
-    
+
     def step(self, action):
+        # 右に進んでいるときに報酬を与える or 一方通行的な報酬を与える
         next_state, reward, terminated, truncated, info = self.env.step(action)
-        abs_angle = abs(next_state[2])
-        return next_state, -abs_angle, terminated, truncated, info
+        reward -= abs(next_state[2])
+        # if abs(next_state[1]) < 10:
+            # TODO: 速さの単位とかがわからない
+        if 1.7 < next_state[0] < 2.2:
+            reward += 20
+        if self.max_pos < next_state[0] < 2.2:
+            # 一方通行的な報酬
+            reward += 10
+            self.max_pos = next_state[0]
+
+        return next_state, reward, terminated, truncated, info
+
+    def reset(self):
+        state, info = self.env.reset()
+        self.env.unwrapped.state = np.array([-2.0, 0.0, 0.0, 0.0])
+        self.max_pos = -2.0
+        obs = np.array(self.env.unwrapped.state, dtype=np.float32)
+        return obs, info
 
 
 def main():
     parser = argparse.ArgumentParser(description="This executes DQN learning on CartPole")
     parser.add_argument("model_name", help="specify model name")
     args = parser.parse_args()
-    
+
     model_name = args.model_name
     num_iters = 3
     num_episodes = 10000
@@ -90,7 +107,7 @@ def main():
     all_history = []
     try:
         for iter in range(num_iters):
-            env = gym.make("CartPole-v1", render_mode=None)
+            env = gym.make("CartPole-v1", render_mode="human")
             custom_env = RewardWrapper(env)
             agent = DQNAgent(state_dim, action_space, buffer_size, batch_size, learning_rate, num_episodes)
             reward_history = []
@@ -100,7 +117,7 @@ def main():
                     total_reward = 0
                     while True:
                         action = agent.get_action(state)
-                        next_state, reward, terminated, truncated, info = env.step(int(action))
+                        next_state, reward, terminated, truncated, info = custom_env.step(int(action))
                         done = truncated or terminated
                         agent.update(state, reward, int(action), next_state, done)
                         total_reward += reward
@@ -126,6 +143,7 @@ def main():
         save_result_text(all_history, model_result_text)
         save_weithts(agent)
         save_figure(all_history)
+
 
 if __name__ == "__main__":
     main()

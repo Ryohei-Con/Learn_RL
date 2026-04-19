@@ -1,3 +1,7 @@
+import torch
+import numpy as np
+from collections import deque
+
 class ReplayBuffer:
     def __init__(self, buffer_size: int, batch_size):
         self.buffer = deque(maxlen=buffer_size)

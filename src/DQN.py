@@ -63,16 +63,6 @@ class DQNAgent:
         self.optimizer.step()
 
 
-class RewardWrapper(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-    
-    def step(self, action):
-        next_state, reward, terminated, truncated, info = self.env.step(action)
-        reward -= abs(next_state[0]) + abs(next_state[1]) + abs(next_state[2]) + abs(next_state[3])
-        return next_state, reward, terminated, truncated, info
-
-
 def main():
     parser = argparse.ArgumentParser(description="This executes DQN learning on CartPole")
     parser.add_argument("model_name", help="specify model name")
@@ -90,12 +80,11 @@ def main():
     try:
         for iter in range(num_iters):
             env = gym.make("CartPole-v1", render_mode=None)
-            custom_env = RewardWrapper(env)
             agent = DQNAgent(state_dim, action_space, buffer_size, batch_size, learning_rate, num_episodes)
             reward_history = []
             with tqdm(range(num_episodes)) as pbar:
                 for episode in pbar:
-                    state, info = custom_env.reset()
+                    state, info = env.reset()
                     total_reward = 0
                     while True:
                         action = agent.get_action(state)
@@ -123,8 +112,8 @@ def main():
         all_history = np.array(all_history)
 
         save_result_text(all_history, model_result_text)
-        save_weithts(agent)
-        save_figure(all_history)
+        save_weights(agent, model_weight_file)
+        save_figure(all_history, model_result_fig)
 
 
 if __name__ == "__main__":
