@@ -11,9 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from src.common.save_models import save_result_text, save_weights, save_figure
-from src.common.replay_buffer import ReplayBuffer
-from src.common.QNet import QNet
+from common.save_models import save_result_text, save_weights, save_figure
+from common.replay_buffer import ReplayBuffer
+from common.QNet import QNet
 
 
 class DQNAgent:
@@ -141,9 +141,8 @@ def main():
         all_history = np.array(all_history)
 
         save_result_text(all_history, model_result_text)
-        save_weithts(agent)
-        save_figure(all_history)
-
+        save_weights(agent, model_weight_file)
+        save_figure(all_history, model_result_fig)
 
 if __name__ == "__main__":
     main()

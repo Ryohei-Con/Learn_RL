@@ -11,9 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from src.common.save_models import save_result_text, save_weights, save_figure
-from src.common.replay_buffer import ReplayBuffer
-from src.common.QNet import QNet
+from common.save_models import save_result_text, save_weights, save_figure
+from common.replay_buffer import ReplayBuffer
+from common.QNet import QNet
 
 
 class DQNAgent:

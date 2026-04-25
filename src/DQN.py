@@ -67,7 +67,7 @@ def main():
     parser = argparse.ArgumentParser(description="This executes DQN learning on CartPole")
     parser.add_argument("model_name", help="specify model name")
     args = parser.parse_args()
-    
+
     model_name = args.model_name
     num_iters = 3
     num_episodes = 10000

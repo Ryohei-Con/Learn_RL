@@ -1,40 +1,44 @@
-from pathlib import Path
 import argparse
-from collections import deque
-import copy
 import random
-from tqdm import tqdm
+from collections import deque
+from pathlib import Path
+
 import gymnasium as gym
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from common.save_models import save_result_text, save_weights, save_figure
-from common.replay_buffer import ReplayBuffer
 from common.QNet import QNet
 
-
-class QLearnAgent:
+class PolicyGradAgent:
     def __init__(self, num_states, num_actions, buffer_size, batch_size, learning_rate, num_episodes):
         self.EPS = 0.5
         self.EPS_diff = (self.EPS - 0.01) / num_episodes
         self.GAMMA = 0.99
         self.num_actions = num_actions
         self.batch_size = batch_size
-        self.buffer = ReplayBuffer(batch_size, batch_size)
+        self.memory = []
 
         self.qnet = QNet(num_states, 128, num_actions)
 
         self.loss = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.qnet.parameters(), learning_rate)
-    
+
+
     def lower_eps(self):
         self.EPS -= self.EPS_diff
         return
-    
+
+
     def get_action(self, state):
+        """
+        (batch_size, num_actions) -> (batch_size,)
+        """
+        
         state = torch.Tensor(state).unsqueeze(dim=0)
         if np.random.rand() < self.EPS:
             return np.random.choice(self.num_actions)
@@ -42,13 +46,16 @@ class QLearnAgent:
             actions: torch.Tensor = self.qnet(state)
             return actions.data.argmax(dim=1)
 
+    def add(self, state, prob):
+        self.memory.append()
+        
 
     def update(self, state, reward, action, next_state, done):
         self.buffer.add(state, reward, action, next_state, done)
         if len(self.buffer) < self.batch_size:
             return
         states, rewards, actions, next_states, dones = self.buffer.get_batch()
-        next_q_val = self.qnet(next_states).data.max(dim=1).values
+        next_q_val = self.target_qnet(next_states).data.max(dim=1).values
         target = rewards + (1 - dones) * self.GAMMA * next_q_val
         preds = torch.gather(self.qnet(states), 1, actions.unsqueeze(dim=1).to(torch.int64))
         loss = self.loss(preds.squeeze(), target)
@@ -76,7 +83,7 @@ def main():
     try:
         for iter in range(num_iters):
             env = gym.make("CartPole-v1", render_mode=None)
-            agent = QLearnAgent(state_dim, action_space, buffer_size, batch_size, learning_rate, num_episodes)
+            agent = PolicyGradAgent(state_dim, action_space, buffer_size, batch_size, learning_rate, num_episodes)
             reward_history = []
             with tqdm(range(num_episodes)) as pbar:
                 for episode in pbar:
@@ -84,6 +91,7 @@ def main():
                     total_reward = 0
                     while True:
                         action = agent.get_action(state)
+                        # TODO: intキャストがあやしい
                         next_state, reward, terminated, truncated, info = env.step(int(action))
                         done = truncated or terminated
                         agent.update(state, reward, int(action), next_state, done)
@@ -94,6 +102,7 @@ def main():
                     reward_history.append(total_reward)
                     agent.lower_eps()
                     if episode % 20 == 0:
+                        agent.sync_target()
                         pbar.set_description(f"iter: {iter}, reward: {sum(reward_history[-20:]) / 20}")
             all_history.append(reward_history)
 
@@ -109,7 +118,6 @@ def main():
         save_result_text(all_history, model_result_text)
         save_weights(agent, model_weight_file)
         save_figure(all_history, model_result_fig)
-
 
 
 if __name__ == "__main__":
